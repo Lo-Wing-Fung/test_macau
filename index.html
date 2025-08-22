@@ -95,6 +95,44 @@
   .btn.secondary { background: #2a2f39; }
   .btn:hover { filter: brightness(1.08); }
   .hint { opacity: .8; font-size: 12px; }
+
+  /* === ADDED === */
+    .grid4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-top: 8px;
+    }
+    .grid4 .cell {
+    background: #0f1324;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 8px;
+    padding: 8px 10px;
+    text-align: center;
+    font-weight: 600;
+    }
+
+    .grid3x3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+    }
+    .grid3x3 .box {
+    background: #1a2038;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 10px;
+    padding: 14px 10px;
+    text-align: center;
+    font-size: 18px;
+    font-weight: 800;
+    }
+    .grid3x3 .box.win { outline: 2px solid #2d6df6; }
+
+    /* Make panels stack nicely */
+    .panel .section-title { display:block; margin: 8px 0 6px; font-weight:700; }
+
+
 </style>
 </head>
 <body>
@@ -113,7 +151,14 @@
       <button class="btn" id="undoBtn" title="Remove last number">Undo</button>
       <button class="btn secondary" id="clearBtn" title="Clear all">Clear</button>
       <button class="btn secondary" id="copyBtn" title="Copy to clipboard">Copy</button>
+      <button class="btn" id="calcBtn" title="Calculate payouts">Calculate</button>
+
     </div>
+
+    <div class="section-title">Inputs (grouped by 4)</div>
+    <div id="inputGrid" class="grid4"></div>
+    <div class="section-title">Payouts (Row × Dozen)</div>
+    <div id="payoutGrid" class="grid3x3" aria-label="Row × Dozen payouts"></div>
   </div>
 
 <script>
@@ -224,6 +269,109 @@ function flash(msg) {
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 900);
 }
+
+/* === ADDED: payout calculation === */
+const STAKE = 20;           // $20 per bet as requested
+const SINGLE_WIN = 3 * STAKE - 2 * STAKE;   // 2:1 pays back $60 including stake
+const DOUBLE_WIN = 6 * STAKE - 2 * STAKE; // both bets win → $120 including stake
+
+// Build sets for quick lookup
+const rowSets = rows.map(arr => new Set(arr));
+const dozenSets = [
+  new Set(Array.from({length:12}, (_,i)=> i+1)),        // 1–12
+  new Set(Array.from({length:12}, (_,i)=> i+13)),       // 13–24
+  new Set(Array.from({length:12}, (_,i)=> i+25)),       // 25–36
+];
+
+// Utility to render input numbers grouped 4-per-row
+function renderInputGrid(nums) {
+  const wrap = document.getElementById('inputGrid');
+  wrap.innerHTML = '';
+  for (let i = 0; i < nums.length; i += 4) {
+    const slice = nums.slice(i, i+4);
+    slice.forEach(n => {
+      const c = document.createElement('div');
+      c.className = 'cell';
+      c.textContent = n;
+      wrap.appendChild(c);
+    });
+    // fill row if not multiple of 4
+    for (let k = slice.length; k < 4; k++) {
+      const c = document.createElement('div');
+      c.className = 'cell';
+      c.style.opacity = .35;
+      c.textContent = '—';
+      wrap.appendChild(c);
+    }
+  }
+  if (nums.length === 0) {
+    const c = document.createElement('div');
+    c.className = 'cell';
+    c.style.gridColumn = '1 / -1';
+    c.style.opacity = .7;
+    c.textContent = 'No inputs';
+    wrap.appendChild(c);
+  }
+}
+
+// Calculate total returns over all inputs for the 9 combinations
+function calcPayouts(nums) {
+  const totals = Array.from({length:9}, () => 0); // index = row*3 + dozen
+  nums.forEach(nStr => {
+    const n = Number(nStr);
+    if (!Number.isInteger(n) || n < 0 || n > 36) return;
+    // zero never wins any of the 9 combos
+    // if (n === 0) {
+    //     totals[i] -= 2 * STAKE;
+    // }
+
+    const rowIdx = rowSets.findIndex(s => s.has(n));
+    const dozIdx = dozenSets.findIndex(s => s.has(n));
+
+    // For each of the 9 boxes, only the one matching this (rowIdx, dozIdx)
+    // scores DOUBLE_WIN; the two that share row or dozen (but not both)
+    // each score SINGLE_WIN; the rest score 0.
+    for (let r = 0; r < 3; r++) {
+      for (let d = 0; d < 3; d++) {
+        const i = r*3 + d;
+        if (r === rowIdx && d === dozIdx) {
+          totals[i] += DOUBLE_WIN;     // both bets win
+        } else if (r === rowIdx || d === dozIdx) {
+          totals[i] += SINGLE_WIN;     // only one bet wins
+        } else{
+          totals[i] -= 2 * STAKE;
+        }
+      }
+    }
+  });
+  return totals;
+}
+
+// Render the 3×3 grid with totals (dollars)
+function renderPayoutGrid(totals) {
+  const wrap = document.getElementById('payoutGrid');
+  wrap.innerHTML = '';
+  for (let i = 0; i < 9; i++) {
+    const r = Math.floor(i / 3) + 1;
+    const d = (i % 3) + 1;
+    const box = document.createElement('div');
+    box.className = 'box' + (totals[i] > 0 ? ' win' : '');
+    box.title = `Row ${r} × Dozen ${d}`;
+    box.textContent = `$${totals[i]}`;
+    wrap.appendChild(box);
+  }
+}
+
+// Hook up the Calculate button
+document.getElementById('calcBtn').addEventListener('click', () => {
+  const nums = getList();        // uses your existing parser for textarea
+  renderInputGrid(nums);
+  const totals = calcPayouts(nums);
+  renderPayoutGrid(totals);
+});
+
+
+
 </script>
 </body>
 </html>
